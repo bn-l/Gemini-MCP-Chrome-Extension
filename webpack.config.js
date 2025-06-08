@@ -2,7 +2,8 @@ const path = require('path');
 const CopyPlugin = require('copy-webpack-plugin');
 
 module.exports = {
-  mode: 'development',
+  mode: 'production',
+  devtool: 'source-map',
   entry: {
     background: './src/background.ts',
     content: './src/content.ts'
@@ -10,6 +11,7 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: '[name].js'
+    // ★ module, library, experiments を削除
   },
   resolve: {
     extensions: ['.ts', '.js']

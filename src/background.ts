@@ -1,33 +1,25 @@
 import { RequestMessage, ResponseMessage } from './types';
 
-// Native Messagingホスト名（MCPサーバー側で設定する名前と一致させる必要があります）
 const HOST_NAME = 'com.example.gemini_mcp_gateway';
 
-// Native Messagingポートを確立
 let nativePort: chrome.runtime.Port | null = null;
+let isMcpServerConnected = false;
+let geminiTabStatus: { [key: number]: boolean } = {}; // ★タブごとに準備完了状態を管理
 
-// 拡張機能の起動時にNative Messagingポートを接続
+// MCPサーバーへの接続処理（変更なし）
 function connectToNativeHost() {
   try {
     console.log('MCPサーバーに接続を試みています...');
     nativePort = chrome.runtime.connectNative(HOST_NAME);
-    
-    // MCPサーバーからのメッセージを受信したときの処理
+
     nativePort.onMessage.addListener((message: RequestMessage) => {
       console.log('MCPサーバーからメッセージを受信:', message);
-      
-      // アクティブなタブにメッセージを転送
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]?.id) {
-          chrome.tabs.sendMessage(tabs[0].id, message);
-        } else {
-          console.error('アクティブなタブが見つかりません');
-          sendErrorToNativeHost('アクティブなタブが見つかりません');
-        }
-      });
+      isMcpServerConnected = true;
+
+      // ★コマンドをアクティブなGeminiタブに送信する
+      sendCommandsToActiveGeminiTab(message);
     });
-    
-    // 接続が切断されたときの処理
+
     nativePort.onDisconnect.addListener(() => {
       console.log('MCPサーバーとの接続が切断されました');
       const error = chrome.runtime.lastError;
@@ -35,48 +27,76 @@ function connectToNativeHost() {
         console.error('接続エラー:', error);
       }
       nativePort = null;
-      
-      // 一定時間後に再接続を試みる
+      isMcpServerConnected = false;
       setTimeout(connectToNativeHost, 5000);
     });
-    
+
     console.log('MCPサーバーに接続しました');
+    isMcpServerConnected = true;
   } catch (error) {
     console.error('MCPサーバーへの接続に失敗しました:', error);
     nativePort = null;
-    
-    // 一定時間後に再接続を試みる
+    isMcpServerConnected = false;
     setTimeout(connectToNativeHost, 5000);
   }
 }
 
-// 拡張機能の起動時に接続を確立
-connectToNativeHost();
+// connectToNativeHost();
 
-// content.jsからのメッセージを受信したときの処理
-chrome.runtime.onMessage.addListener((message: ResponseMessage, sender, sendResponse) => {
-  console.log('content.jsからメッセージを受信:', message);
-  
-  // MCPサーバーにメッセージを転送
-  if (nativePort) {
-    nativePort.postMessage(message);
-  } else {
-    console.error('MCPサーバーに接続されていません');
-    // 再接続を試みる
-    connectToNativeHost();
+// ★★★ 修正箇所：２つあったonMessageリスナーを１つに統合し、ハンドシェイクを追加 ★★★
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // 1. content.jsからのメッセージを処理
+  if (sender.tab && sender.tab.url?.includes('gemini.google.com')) {
+    const tabId = sender.tab.id;
+
+    // content.jsからの「準備完了」挨拶(ハンドシェイク)を処理
+    if (message.type === 'content_ready' && tabId) {
+      console.log(`タブID: ${tabId} の準備が完了しました。`);
+      geminiTabStatus[tabId] = true; // このタブは準備OKと記録
+      return;
+    }
+
+    // content.jsからの応答メッセージを処理
+    if (message.status) {
+      console.log('content.jsから応答を受信:', message);
+      if (isMcpServerConnected && nativePort) {
+        nativePort.postMessage(message); // MCPサーバーへ転送
+      }
+      chrome.runtime.sendMessage(message); // ポップアップへも転送
+    }
   }
-  
-  // 非同期レスポンスを許可
-  return true;
+  // 2. ポップアップからのコマンドメッセージを処理
+  else if (!sender.tab && message.command) {
+    console.log('ポップアップからメッセージを受信:', message);
+    sendCommandsToActiveGeminiTab(message);
+  }
+
+  return true; // 非同期処理を許可
 });
 
-// エラーメッセージをMCPサーバーに送信する関数
+// アクティブなGeminiタブにコマンドを送信する共通関数
+function sendCommandsToActiveGeminiTab(message: RequestMessage | { command: string, payload?: any }) {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const activeTab = tabs[0];
+    if (activeTab && activeTab.id && activeTab.url?.includes('gemini.google.com')) {
+      // タブが準備完了しているか確認
+      if (geminiTabStatus[activeTab.id]) {
+        chrome.tabs.sendMessage(activeTab.id, message);
+      } else {
+        console.error(`タブID: ${activeTab.id} はまだ準備ができていません。`);
+        // 必要ならエラーを返す処理
+      }
+    } else {
+      console.error('アクティブなGeminiタブが見つかりません');
+      sendErrorToNativeHost('アクティブなGeminiタブが見つかりません');
+    }
+  });
+}
+
+// エラーメッセージをMCPサーバーに送信する関数（変更なし）
 function sendErrorToNativeHost(errorMessage: string) {
   if (nativePort) {
-    const errorResponse: ResponseMessage = {
-      status: 'error',
-      message: errorMessage
-    };
+    const errorResponse: ResponseMessage = { status: 'error', message: errorMessage };
     nativePort.postMessage(errorResponse);
   } else {
     console.error('エラーを送信できません: MCPサーバーに接続されていません');

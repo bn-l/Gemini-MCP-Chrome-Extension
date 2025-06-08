@@ -55,6 +55,8 @@ MCPサーバー側では、Native Hostマニフェストを作成し、適切な
 
 ## 使用方法
 
+### MCPサーバーを使用する場合
+
 1. Chrome拡張機能をインストールした状態で、Gemini Webページ（https://gemini.google.com/）にアクセスします
 2. MCPクライアントから、MCPサーバーを介して以下のコマンドを送信できます：
    - テキスト入力: `{"command": "setInput", "payload": {"text": "入力するテキスト"}}`
@@ -62,6 +64,18 @@ MCPサーバー側では、Native Hostマニフェストを作成し、適切な
 3. Geminiからの応答は、MCPサーバーを介してMCPクライアントに返されます：
    - 成功時: `{"status": "success", "event": "responseReceived", "payload": {"text": "応答テキスト"}}`
    - エラー時: `{"status": "error", "message": "エラーメッセージ"}`
+
+### MCPサーバーなしでテストする場合
+
+拡張機能には、MCPサーバーなしで機能をテストするためのポップアップUIが組み込まれています：
+
+1. Chrome拡張機能をインストールした状態で、Gemini Webページ（https://gemini.google.com/）にアクセスします
+2. ブラウザのツールバーにある拡張機能アイコンをクリックして、ポップアップUIを開きます
+3. テキスト入力欄にGeminiに送信したいテキストを入力します
+4. 「送信」ボタンをクリックすると、テキストがGeminiに送信され、応答が表示されます
+5. 「クリア」ボタンをクリックすると、入力欄と応答欄がクリアされます
+
+このテスト機能を使用することで、MCPサーバーの実装がなくても拡張機能が正しく動作していることを確認できます。
 
 ## 開発情報
 
@@ -71,7 +85,9 @@ MCPサーバー側では、Native Hostマニフェストを作成し、適切な
 /project-root
 |-- /dist            <- ビルド後のファイルが出力されるディレクトリ
 |-- /public          <- 静的ファイルを格納するディレクトリ
-|   `-- manifest.json <- Chrome拡張機能のマニフェスト
+|   |-- manifest.json <- Chrome拡張機能のマニフェスト
+|   |-- popup.html    <- テスト用ポップアップのHTML
+|   `-- popup.js      <- テスト用ポップアップのJavaScript
 |-- /src             <- ソースコードを格納するディレクトリ
 |   |-- background.ts <- Native Messaging担当
 |   |-- content.ts    <- DOM操作担当
@@ -89,3 +105,6 @@ MCPサーバー側では、Native Hostマニフェストを作成し、適切な
 
 - セレクタ（SELECTORS）は、Geminiページの実際の構造に合わせて調整が必要な場合があります
 - Native Messagingホスト名（HOST_NAME）は、MCPサーバー側の設定と一致させる必要があります
+- Content Security Policy (CSP)の設定は、Chrome拡張機能のセキュリティ要件に準拠しています（'unsafe-eval'は使用していません）
+- Service Workerは、ESモジュールとして動作するように設定されています
+- ビルド時にはdistディレクトリが自動的にクリアされます。これにより、古いファイルが残ることによる問題を防ぎます

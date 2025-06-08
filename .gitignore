@@ -12,3 +12,6 @@ yarn-error.log*
 
 # Implementation plan document
 実装計画.md
+
+.repomix
+repomix-output.txt
