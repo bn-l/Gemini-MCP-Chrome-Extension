@@ -1,4 +1,4 @@
-# Gemini MCP Connector
+# Gemini MCP Chrome Extension
 
 Chrome拡張機能を使用して、MCPクライアントからGemini Webインターフェースを操作するためのプロジェクトです。
 
@@ -59,11 +59,14 @@ MCPサーバー側では、Native Hostマニフェストを作成し、適切な
 
 1. Chrome拡張機能をインストールした状態で、Gemini Webページ（https://gemini.google.com/）にアクセスします
 2. MCPクライアントから、MCPサーバーを介して以下のコマンドを送信できます：
+   - 準備状態確認: `{"command": "areYouReady"}`
    - テキスト入力: `{"command": "setInput", "payload": {"text": "入力するテキスト"}}`
    - 送信ボタンクリック: `{"command": "clickSend"}`
 3. Geminiからの応答は、MCPサーバーを介してMCPクライアントに返されます：
    - 成功時: `{"status": "success", "event": "responseReceived", "payload": {"text": "応答テキスト"}}`
    - エラー時: `{"status": "error", "message": "エラーメッセージ"}`
+4. コンテンツスクリプトの準備状態は以下のメッセージで通知されます：
+   - 準備完了時: `{"type": "content_ready"}`
 
 ### MCPサーバーなしでテストする場合
 
