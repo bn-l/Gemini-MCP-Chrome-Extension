@@ -1,90 +1,86 @@
 /**
  * types.ts
- * 
- * このファイルはChrome拡張機能とMCPサーバー間のメッセージング用の
- * 型定義を提供します。明確な型定義により、タイプセーフなコミュニケーションを
- * 実現し、開発時のエラー検出を容易にします。
+ *
+ * This file provides type definitions for messaging between the Chrome
+ * extension and the MCP server. Clear typing enables type-safe communication
+ * and makes it easier to catch errors during development.
  */
 
 /**
- * MCPサーバーから拡張機能へのリクエストメッセージの型定義
+ * Request message types coming from the MCP server to the extension
  */
 
 /**
- * 準備状態確認メッセージ
- * 
- * バックグラウンドスクリプトがコンテンツスクリプトに
- * 準備ができているかどうかを確認するために使用します。
+ * Readiness-check message
+ *
+ * Used by the background script to ask the content script whether it is ready.
  */
 export interface AreYouReadyMessage {
   command: 'areYouReady';
 }
 
 /**
- * テキスト入力メッセージ
- * 
- * Geminiの入力欄に特定のテキストを入力するよう
- * コンテンツスクリプトに指示するために使用します。
+ * Text-input message
+ *
+ * Instructs the content script to enter the specified text into Gemini’s input
+ * field.
  */
 export interface SetInputMessage {
   command: 'setInput';
   payload: {
-    text: string; // 入力するテキスト
+    text: string; // Text to input
   };
 }
 
 /**
- * 送信ボタンクリックメッセージ
- * 
- * Geminiの送信ボタンをクリックするよう
- * コンテンツスクリプトに指示するために使用します。
+ * Send-button-click message
+ *
+ * Instructs the content script to click Gemini’s send button.
  */
 export interface ClickSendMessage {
   command: 'clickSend';
 }
 
 /**
- * リクエストメッセージの共用体型
- * 
- * MCPサーバーからChrome拡張機能へのすべてのリクエストタイプを
- * 一つの型として扱うために使用します。
+ * Discriminated union of request messages.
+ *
+ * Represents every request type that can be sent from the MCP server to the
+ * Chrome extension.
  */
 export type RequestMessage = SetInputMessage | ClickSendMessage | AreYouReadyMessage;
 
 
 /**
- * 拡張機能からMCPサーバーへのレスポンスメッセージの型定義
+ * Response message types coming from the extension to the MCP server
  */
 
 /**
- * レスポンスメッセージの共用体型
- * 
- * Chrome拡張機能からMCPサーバーへのすべてのレスポンスタイプを
- * 一つの型として扱うために使用します。
+ * Discriminated union of response messages.
+ *
+ * Represents every response type that can be sent from the Chrome extension to
+ * the MCP server.
  */
 export type ResponseMessage = SuccessResponseMessage | ErrorResponseMessage;
 
 /**
- * 成功レスポンスメッセージ
- * 
- * Geminiからの応答テキストをMCPサーバーに
- * 転送するために使用します。
+ * Success response message
+ *
+ * Used to forward Gemini’s response text back to the MCP server.
  */
 export interface SuccessResponseMessage {
   status: 'success';
   event: 'responseReceived';
   payload: {
-    text: string; // Geminiからの応答テキスト
+    text: string; // Gemini response text
   };
 }
 
 /**
- * エラーレスポンスメッセージ
- * 
- * 操作中に発生したエラーをMCPサーバーに
- * 通知するために使用します。
+ * Error response message
+ *
+ * Used to notify the MCP server of an error that occurred during an operation.
  */
 export interface ErrorResponseMessage {
   status: 'error';
-  message: string; // エラーメッセージ
+  message: string; // Error message
 }

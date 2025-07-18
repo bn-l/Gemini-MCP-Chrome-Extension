@@ -1,47 +1,44 @@
 // public/popup.js
 
-// DOM要素の参照を最初に取得
+// Get handles to DOM elements
 const inputTextArea = document.getElementById('input-text');
 const sendButton = document.getElementById('send-button');
 const clearButton = document.getElementById('clear-button');
 const statusMessage = document.getElementById('status-message');
 const responseText = document.getElementById('response-text');
 
-// ★変更点1: 応答の待受は、ポップアップを開いた時に一度だけ設定します。
-// これにより、ボタンを複数回クリックしてもリスナーが重複することがなくなります。
+// ★Change 1: Register the response listener only once when the popup opens.
+// This prevents duplicate listeners when the button is clicked multiple times.
 chrome.runtime.onMessage.addListener(handleResponse);
 
 
-// 送信ボタンのクリックイベント
+// Click handler for the send button
 sendButton.addEventListener('click', () => {
   const text = inputTextArea.value.trim();
 
   if (!text) {
-    setStatus('テキストを入力してください', true);
+    setStatus('Please enter text', true);
     return;
   }
 
-  // ★変更点2: クリック時の処理をシンプルに。バックグラウンドに処理を依頼するだけにします。
-  // これで、このファイルがパースエラーになる可能性が非常に低くなります。
-  setLoading(true); //
-  setStatus('Geminiに送信しています...', false); //
+  // ★Change 2: Keep the click handler simple—just ask the background page to do the work.
+  // This greatly reduces the chance of parse errors in this file.
+  setLoading(true);
+  setStatus('Sending to Gemini...', false);
 
-  // バックグラウンドスクリプトにメッセージを送信
+  // Send a message to the background script
   chrome.runtime.sendMessage({
-    // ※注意: background.tsがこのコマンドを認識できるように、
-    // 前回の提案通り 'executeFromPopup' のようなコマンド名にするか、
-    // あるいは background.ts 側のロジックを調整する必要があります。
-    // ここでは、background.tsの既存のロジックを活かすため、
-    // 元のメッセージ形式に近い形に戻します。
+    // Note: Make sure background.ts can recognize this command name.
+    // We stay close to the existing message format for compatibility.
     command: 'setInput',
     payload: { text: text }
   });
-  // 2つ目のコマンドもすぐに送信します
+  // Immediately send the second command
   chrome.runtime.sendMessage({ command: 'clickSend' });
 });
 
 
-// クリアボタンのクリックイベント
+// Click handler for the clear button
 clearButton.addEventListener('click', () => {
   inputTextArea.value = '';
   responseText.textContent = '';
@@ -50,48 +47,48 @@ clearButton.addEventListener('click', () => {
 });
 
 
-// 応答メッセージを処理する関数
+// Handles incoming response messages
 function handleResponse(message) {
-  // ポップアップに関係のないメッセージは無視
+  // Ignore messages not related to the popup
   if (!message.status) {
     return;
   }
 
-  console.log('応答を受信:', message);
+  console.log('Received response:', message);
 
   if (message.status === 'success' && message.event === 'responseReceived') {
-    // 成功応答の処理
+    // Success response
     responseText.textContent = message.payload.text;
-    setStatus('応答を受信しました', false); //
+    setStatus('Response received', false);
   } else if (message.status === 'error') {
-    // エラー応答の処理
-    responseText.textContent = `エラー: ${message.message}`;
-    setStatus(`エラーが発生しました: ${message.message}`, true); //
+    // Error response
+    responseText.textContent = `Error: ${message.message}`;
+    setStatus(`An error occurred: ${message.message}`, true);
   }
 
-  // UIを有効化
-  setLoading(false); //
+  // Re-enable the UI
+  setLoading(false);
 }
 
 
-// ステータスメッセージを設定する関数
+// Sets the status message
 function setStatus(message, isError) {
   statusMessage.textContent = message;
   if (isError) {
-    statusMessage.classList.add('error'); //
+    statusMessage.classList.add('error');
   } else {
-    statusMessage.classList.remove('error'); //
+    statusMessage.classList.remove('error');
   }
 }
 
-// ローディング状態を設定する関数
+// Toggles the loading state
 function setLoading(isLoading) {
-  sendButton.disabled = isLoading; //
-  inputTextArea.disabled = isLoading; //
+  sendButton.disabled = isLoading;
+  inputTextArea.disabled = isLoading;
 }
 
-// ポップアップが開かれたときの初期化
+// Initialization when the popup opens
 document.addEventListener('DOMContentLoaded', () => {
-  // 入力欄にフォーカス
+  // Focus the input field
   inputTextArea.focus();
 });

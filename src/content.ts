@@ -1,252 +1,283 @@
 /**
  * content.ts
- * 
- * このファイルはChrome拡張機能のコンテンツスクリプトとして機能し、
- * Gemini Webページ上でのDOM操作を担当します。主な機能は：
- * 1. テキスト入力欄への入力
- * 2. 送信ボタンのクリック
- * 3. Geminiからの応答テキストの取得と転送
- * 
- * 拡張機能のバックグラウンドスクリプトとメッセージングを行い、
- * MCPサーバーからのコマンドを実行します。
+ *
+ * This file serves as the content script for the Chrome extension. It handles
+ * DOM operations on the Gemini web page and offers three main capabilities:
+ * 1. Writing text into the input field
+ * 2. Clicking the send button
+ * 3. Retrieving Gemini's response text and forwarding it
+ *
+ * It communicates with the background script and executes commands that come
+ * from the MCP server.
  */
-import { RequestMessage, ResponseMessage } from './types';
+import { RequestMessage, ResponseMessage } from "./types";
 
 /**
- * メイン処理を初期化する関数
- * 
- * この関数はGemini Webページの準備ができた時点で呼び出され、
- * DOM操作やイベントリスナーの設定を行います。
+ * Initializes the main logic.
+ *
+ * This function is called once the Gemini web page is ready. It sets up all
+ * DOM manipulation helpers and event listeners.
  */
 function initializeMainLogic() {
-  console.log('[MCP-Content] Target frame confirmed. Initializing main logic...');
+  console.log(
+    "[MCP-Content] Target frame confirmed. Initializing main logic..."
+  );
 
-  // Gemini Webページ上の要素を特定するためのセレクタ
+  // CSS selectors used to locate elements on the Gemini page
   const SELECTORS = {
-    INPUT_AREA: 'div[aria-label="ここにプロンプトを入力してください"]',
-    SEND_BUTTON: 'button[aria-label="プロンプトを送信"]',
-    RESPONSE_CONTAINER: 'div[id^="model-response-message-content"]'
+    INPUT_AREA: 'div[aria-label="Enter your prompt here"]',
+    SEND_BUTTON: 'button[aria-label="Send prompt"]',
+    RESPONSE_CONTAINER: 'div[id^="model-response-message-content"]',
   };
 
-  // 最後に送信した応答を記録するためのストレージキー
-  const STORAGE_KEY = 'mcp_last_response';
+  // sessionStorage key for tracking the last response that was sent
+  const STORAGE_KEY = "mcp_last_response";
 
-  // DOM変更を監視するためのオブザーバー
+  // Observer to watch DOM changes for new responses
   let responseObserver: MutationObserver | null = null;
 
-  // 応答テキスト取得のデバウンス処理用タイムアウトID
+  // Timeout ID used to debounce response extraction
   let debounceTimeout: number | null = null;
 
   /**
-   * Geminiの応答テキストを抽出する関数
-   * 
-   * ページ上のGeminiの応答コンテナから最新の応答テキストを取得します。
-   * 応答が見つからない場合やエラーが発生した場合はnullを返します。
-   * 
-   * @returns 抽出された応答テキスト、または応答が見つからない場合はnull
+   * Extracts the latest response text from Gemini.
+   * Returns null if the text cannot be found or an error occurs.
    */
   function extractResponseText(): string | null {
     try {
-      const allResponses = document.querySelectorAll(SELECTORS.RESPONSE_CONTAINER);
+      const allResponses = document.querySelectorAll(
+        SELECTORS.RESPONSE_CONTAINER
+      );
       if (allResponses.length === 0) return null;
       const latestResponse = allResponses[allResponses.length - 1];
-      return (latestResponse.textContent || '').trim();
-    } catch (error) { return null; }
+      return (latestResponse.textContent || "").trim();
+    } catch (error) {
+      return null;
+    }
   }
 
   /**
-   * セッションストレージを初期化する関数
-   * 
-   * ページ読み込み時に既存の応答テキストがあれば、それをセッションストレージに
-   * 保存します。これにより、同じ応答が重複して送信されるのを防ぎます。
+   * Initializes sessionStorage.
+   *
+   * If an existing response is present when the page loads, store it so that we
+   * don’t send the same response twice.
    */
   function primeSessionStorage() {
     const initialText = extractResponseText();
     if (initialText) {
-      console.log('[MCP-Content] Priming sessionStorage with initial last response:', initialText);
+      console.log(
+        "[MCP-Content] Priming sessionStorage with initial last response:",
+        initialText
+      );
       sessionStorage.setItem(STORAGE_KEY, initialText);
     }
   }
 
   /**
-   * 応答テキストをバックグラウンドスクリプトに送信する関数
-   * 
-   * Geminiからの応答テキストを適切な形式でバックグラウンドスクリプトに送信します。
-   * バックグラウンドスクリプトはこれをMCPサーバーに転送します。
-   * 
-   * @param text - 送信する応答テキスト
+   * Sends response text to the background script so it can be forwarded to the
+   * MCP server.
    */
   function sendResponseToBackground(text: string) {
-    const response: ResponseMessage = { status: 'success', event: 'responseReceived', payload: { text: text } };
+    const response: ResponseMessage = {
+      status: "success",
+      event: "responseReceived",
+      payload: { text: text },
+    };
     chrome.runtime.sendMessage(response);
   }
 
   /**
-   * Geminiの応答を監視するオブザーバーを開始する関数
-   * 
-   * DOM変更を監視し、Geminiからの新しい応答テキストを検出します。
-   * 新しい応答が検出された場合、それをバックグラウンドスクリプトに送信します。
-   * デバウンス処理を行い、短時間に複数回の通知が発生するのを防ぎます。
-   * 診断ログを出力して、応答検出プロセスの各ステップを追跡します。
+   * Starts the MutationObserver that watches for new Gemini responses.
+   *
+   * The observer is debounced to avoid firing multiple times in quick
+   * succession. Detailed diagnostic logs trace every step.
    */
   function startResponseObserver() {
-    // 既存のオブザーバーがあれば切断
+    // Disconnect existing observer, if any
     if (responseObserver) responseObserver.disconnect();
 
     const observerTarget = document.body;
     responseObserver = new MutationObserver(() => {
-      // デバウンス処理（短時間に複数回実行されるのを防ぐ）
+      // Debounce to avoid multiple triggers in quick succession
       if (debounceTimeout) clearTimeout(debounceTimeout);
       debounceTimeout = window.setTimeout(() => {
-        console.log('[MCP-Content] --- Observer Fired ---');
+        console.log("[MCP-Content] --- Observer Fired ---");
         const finalText = extractResponseText();
 
-        // 応答テキストが取得できなかった場合
+        // If no response text could be extracted
         if (!finalText) {
-          console.log('[MCP-Content] Observer fired, but no text was extracted.');
+          console.log(
+            "[MCP-Content] Observer fired, but no text was extracted."
+          );
           return;
         }
-        console.log(`[MCP-Content] Step 1: Extracted text: "${finalText.substring(0, 20)}..."`);
+        console.log(
+          `[MCP-Content] Step 1: Extracted text: "${finalText.substring(
+            0,
+            20
+          )}..."`
+        );
 
         try {
-          // 前回送信した応答テキストを取得
-          const lastSent = sessionStorage.getItem(STORAGE_KEY) || '';
-          console.log(`[MCP-Content] Step 2: Read from sessionStorage. lastSent: "${lastSent.substring(0, 20)}..."`);
+          // Retrieve the last response text that was sent
+          const lastSent = sessionStorage.getItem(STORAGE_KEY) || "";
+          console.log(
+            `[MCP-Content] Step 2: Read from sessionStorage. lastSent: "${lastSent.substring(
+              0,
+              20
+            )}..."`
+          );
 
-          // 新しい応答テキストの場合のみ送信
+          // Only send if the response text is new
           if (finalText !== lastSent) {
-            console.log('[MCP-Content] Step 3: ✅ Text is new. Condition (finalText !== lastSent) is TRUE.');
-            console.log('[MCP-Content] Step 4: Attempting to write to sessionStorage...');
+            console.log(
+              "[MCP-Content] Step 3: ✅ Text is new. Condition (finalText !== lastSent) is TRUE."
+            );
+            console.log(
+              "[MCP-Content] Step 4: Attempting to write to sessionStorage..."
+            );
             sessionStorage.setItem(STORAGE_KEY, finalText);
-            console.log('[MCP-Content] Step 5: Write to sessionStorage seems successful.');
+            console.log(
+              "[MCP-Content] Step 5: Write to sessionStorage seems successful."
+            );
             sendResponseToBackground(finalText);
           } else {
-            console.log('[MCP-Content] Step 3: ❌ Text is old (it matches sessionStorage). Condition is FALSE. Ignoring.');
+            console.log(
+              "[MCP-Content] Step 3: ❌ Text is old (it matches sessionStorage). Condition is FALSE. Ignoring."
+            );
           }
         } catch (e) {
-          console.error('[MCP-Content] ❌ A CRITICAL ERROR occurred while accessing sessionStorage!', e);
+          console.error(
+            "[MCP-Content] ❌ A CRITICAL ERROR occurred while accessing sessionStorage!",
+            e
+          );
         }
-      }, 500); // 500ミリ秒のデバウンス時間
+      }, 500); // Debounce delay of 500 ms
     });
 
-    // body要素とその子孫要素の変更を監視
-    responseObserver.observe(observerTarget, { childList: true, subtree: true });
+    // Observe changes on body and its descendants
+    responseObserver.observe(observerTarget, {
+      childList: true,
+      subtree: true,
+    });
   }
 
   /**
-   * テキスト入力欄にテキストを設定する関数
-   * 
-   * Geminiの入力欄に指定されたテキストを入力します。
-   * 入力が成功したかどうかをPromiseで返します。
-   * 
-   * @param text - 入力するテキスト
-   * @returns 入力が成功したかどうかを示すPromise
+   * Writes the specified text into Gemini’s input field.
    */
   function setInput(text: string): Promise<boolean> {
     return new Promise((resolve) => {
       try {
-        // 入力欄要素を取得
-        const inputElement = document.querySelector(SELECTORS.INPUT_AREA) as HTMLElement;
-        if (!inputElement) { resolve(false); return; }
+        // Get the input element
+        const inputElement = document.querySelector(
+          SELECTORS.INPUT_AREA
+        ) as HTMLElement;
+        if (!inputElement) {
+          resolve(false);
+          return;
+        }
 
-        // テキストを入力
+        // Insert the text
         inputElement.focus();
         inputElement.textContent = text;
 
-        // 入力イベントを発火させてGeminiに変更を通知
-        const inputEvent = new Event('input', { bubbles: true });
+        // Dispatch an input event to notify Gemini of the change
+        const inputEvent = new Event("input", { bubbles: true });
         inputElement.dispatchEvent(inputEvent);
 
         resolve(true);
-      } catch (error) { resolve(false); }
+      } catch (error) {
+        resolve(false);
+      }
     });
   }
 
   /**
-   * 送信ボタンをクリックする関数
-   * 
-   * Geminiの送信ボタンを探してクリックします。
-   * ボタンが有効になるまで待機し、クリック後に応答監視を開始します。
-   * 
-   * @returns クリックが成功したかどうかを示すPromise
+   * Locates and clicks the Gemini send button. After the click the response
+   * observer is started.
    */
   function clickSend(): Promise<boolean> {
     return new Promise((resolve) => {
-      // ボタンが有効になるまで定期的にチェック
+      // Periodically check until the button becomes enabled
       const intervalId = setInterval(() => {
-        const sendButton = document.querySelector(SELECTORS.SEND_BUTTON) as HTMLButtonElement;
+        const sendButton = document.querySelector(
+          SELECTORS.SEND_BUTTON
+        ) as HTMLButtonElement;
         if (sendButton && !sendButton.disabled) {
           clearInterval(intervalId);
           try {
-            // ボタンをクリックして応答監視を開始
+            // Click the button and start the response observer
             sendButton.click();
             startResponseObserver();
             resolve(true);
-          } catch (error) { resolve(false); }
+          } catch (error) {
+            resolve(false);
+          }
         }
-      }, 100); // 100ミリ秒ごとにチェック
+      }, 100); // Check every 100 ms
     });
   }
 
   /**
-   * エラーメッセージをバックグラウンドスクリプトに送信する関数
-   * 
-   * 操作中にエラーが発生した場合、エラーメッセージを
-   * バックグラウンドスクリプトに送信します。
-   * 
-   * @param errorMessage - 送信するエラーメッセージ
+   * Sends an error message to the background script so it can be relayed to the
+   * MCP server.
    */
   function sendErrorToBackground(errorMessage: string) {
-    const errorResponse: ResponseMessage = { status: 'error', message: errorMessage };
+    const errorResponse: ResponseMessage = {
+      status: "error",
+      message: errorMessage,
+    };
     chrome.runtime.sendMessage(errorResponse);
   }
 
-  // 初期化時にセッションストレージを準備
+  // Prime sessionStorage during initialization
   primeSessionStorage();
 
   /**
-   * バックグラウンドスクリプトからのメッセージを処理するリスナー
-   * 
-   * 以下のコマンドを処理します：
-   * - areYouReady: 準備状態の確認に応答
-   * - setInput: テキスト入力欄にテキストを設定
-   * - clickSend: 送信ボタンをクリック
+   * Listener for messages coming from the background script.
+   *
+   * Supported commands:
+   * - areYouReady: Reply with a readiness notification
+   * - setInput:   Insert text into the input field
+   * - clickSend:  Click the send button
    */
   chrome.runtime.onMessage.addListener((message: RequestMessage) => {
     switch (message.command) {
-      case 'areYouReady':
-        // バックグラウンドスクリプトからの点呼に応答して、準備完了を通知
-        console.log('[MCP-Content] Received readiness check. Replying with content_ready.');
-        chrome.runtime.sendMessage({ type: 'content_ready' });
+      case "areYouReady":
+        // Respond to readiness check by notifying that content is ready
+        console.log(
+          "[MCP-Content] Received readiness check. Replying with content_ready."
+        );
+        chrome.runtime.sendMessage({ type: "content_ready" });
         break;
-      case 'setInput':
-        // テキスト入力コマンドを処理
-        setInput(message.payload.text).then(success => { 
-          if (!success) sendErrorToBackground('テキスト入力に失敗しました'); 
+      case "setInput":
+        // Handle text input command
+        setInput(message.payload.text).then((success) => {
+          if (!success) sendErrorToBackground("Failed to input text");
         });
         break;
-      case 'clickSend':
-        // 送信ボタンクリックコマンドを処理
-        clickSend().then(success => { 
-          if (!success) sendErrorToBackground('送信ボタンクリックに失敗しました'); 
+      case "clickSend":
+        // Handle send button click command
+        clickSend().then((success) => {
+          if (!success) sendErrorToBackground("Failed to click send button");
         });
         break;
     }
-    return true; // 非同期レスポンスを有効にする
+    return true; // Enable asynchronous response
   });
 
-  // 初期化完了時にバックグラウンドスクリプトに準備完了を通知
-  chrome.runtime.sendMessage({ type: 'content_ready' });
+  // Notify background script that content is ready after initialization
+  chrome.runtime.sendMessage({ type: "content_ready" });
 }
 
 /**
- * 特定の要素がDOMに表示されるまで待機する関数
- * 
- * 指定されたセレクタに一致する要素がDOMに表示されるまで
- * 定期的にチェックし、要素が見つかったらコールバック関数を実行します。
- * 
- * @param selector - 待機する要素のCSSセレクタ
- * @param callback - 要素が見つかった時に実行するコールバック関数
+ * Polls for an element to appear in the DOM before executing a callback.
+ *
+ * Periodically checks for an element matching the specified selector, and
+ * executes the callback function once the element is found.
+ *
+ * @param selector - CSS selector for the element to wait for
+ * @param callback - Function to execute when the element is found
  */
 function pollForElement(selector: string, callback: () => void) {
   const intervalId = setInterval(() => {
@@ -254,8 +285,8 @@ function pollForElement(selector: string, callback: () => void) {
       clearInterval(intervalId);
       callback();
     }
-  }, 500); // 500ミリ秒ごとにチェック
+  }, 500); // Check every 500 milliseconds
 }
 
-// 入力欄が表示されるまで待機し、表示されたらメイン処理を初期化
-pollForElement('div[aria-label="ここにプロンプトを入力してください"]', initializeMainLogic);
+// Wait for the input field to appear and then initialize the main logic
+pollForElement('div[aria-label="Enter your prompt here"]', initializeMainLogic);

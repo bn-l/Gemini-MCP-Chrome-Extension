@@ -1,113 +1,106 @@
 # Gemini MCP Chrome Extension
 
-Chrome拡張機能を使用して、MCPクライアントからGemini Webインターフェースを操作するためのプロジェクトです。
+This Chrome extension allows an external MCP client to operate the Google Gemini web interface through an MCP server.
 
-## プロジェクト概要
+## Project Overview
 
-このプロジェクトは、外部のMCPクライアントからMCPサーバーを介してGoogle GeminiのWebインターフェースを操作するためのChrome拡張機能です。TypeScriptで開発されており、コードの品質と保守性を高めています。
+The project is written in TypeScript to ensure high code quality and maintainability. The overall data flow is shown below:
 
-### システムアーキテクチャ
+`[MCP Client] <--(MCP)--> [MCP Server] <--(Native Messaging)--> [Chrome Extension] <--(DOM)--> [Gemini Web Page]`
 
-データの流れは以下の通りです：
+## Setup
 
-`[MCPクライアント] <--(MCP)--> [MCPサーバー] <--(Native Messaging)--> [Chrome拡張機能] <--(DOM)--> [Gemini Webページ]`
+### Prerequisites
 
-## セットアップ方法
+- Node.js and npm installed
+- Google Chrome installed
 
-### 前提条件
+### Installation Steps
 
-- Node.js と npm がインストールされていること
-- Google Chrome ブラウザがインストールされていること
-
-### インストール手順
-
-1. リポジトリをクローンまたはダウンロードします
-   ```
-   git clone <リポジトリURL>
-   cd GeminiMcpGateway
+1. Clone or download the repository
+   ```bash
+   git clone <repository_url>
+   cd Gemini-MCP-Chrome-Extension
    ```
 
-2. 依存パッケージをインストールします
-   ```
+2. Install dependencies
+   ```bash
    npm install
    ```
 
-3. 拡張機能をビルドします
-   ```
+3. Build the extension
+   ```bash
    npm run build
    ```
 
-4. Chrome拡張機能をインストールします
-   - Chromeで `chrome://extensions` を開きます
-   - 「デベロッパーモード」を有効にします
-   - 「パッケージ化されていない拡張機能を読み込む」をクリックします
-   - プロジェクトのディレクトリを選択します（distディレクトリが含まれていることを確認してください）
+4. Load the extension in Chrome
+   1. Open `chrome://extensions` in Chrome
+   2. Enable **Developer mode**
+   3. Click **Load unpacked** and choose the project directory (make sure the `dist` folder exists)
 
-### MCPサーバーの設定
+### MCP Server Setup
 
-MCPサーバー側では、Native Hostマニフェストを作成し、適切な場所に配置する必要があります。マニフェストには以下の情報を含める必要があります：
+On the MCP server side you must create and place a Native Host manifest. The manifest must contain the following information:
 
-- ホスト名: `com.example.gemini_mcp_gateway`（background.tsで指定されている名前と一致させる必要があります）
-- 実行可能ファイルのパス
-- 許可されるChrome拡張機能のID
+- Host name: `com.example.gemini_mcp_gateway` (must match the value in `background.ts`)
+- Path to the executable
+- The ID of the allowed Chrome extension
 
-詳細な設定方法については、[Chrome Native Messaging のドキュメント](https://developer.chrome.com/docs/apps/nativeMessaging)を参照してください。
+For details, see the [Chrome Native Messaging documentation](https://developer.chrome.com/docs/apps/nativeMessaging).
 
-## 使用方法
+## Usage
 
-### MCPサーバーを使用する場合
+### With an MCP Server
 
-1. Chrome拡張機能をインストールした状態で、Gemini Webページ（https://gemini.google.com/）にアクセスします
-2. MCPクライアントから、MCPサーバーを介して以下のコマンドを送信できます：
-   - 準備状態確認: `{"command": "areYouReady"}`
-   - テキスト入力: `{"command": "setInput", "payload": {"text": "入力するテキスト"}}`
-   - 送信ボタンクリック: `{"command": "clickSend"}`
-3. Geminiからの応答は、MCPサーバーを介してMCPクライアントに返されます：
-   - 成功時: `{"status": "success", "event": "responseReceived", "payload": {"text": "応答テキスト"}}`
-   - エラー時: `{"status": "error", "message": "エラーメッセージ"}`
-4. コンテンツスクリプトの準備状態は以下のメッセージで通知されます：
-   - 準備完了時: `{"type": "content_ready"}`
+1. With the extension installed, navigate to the Gemini web page: `https://gemini.google.com/`
+2. From the MCP client send one of the following commands through the MCP server:
+   - Check readiness: `{"command": "areYouReady"}`
+   - Set input text: `{"command": "setInput", "payload": {"text": "your text"}}`
+   - Click send: `{"command": "clickSend"}`
+3. Gemini’s response is forwarded back through the MCP server to the client:
+   - Success: `{"status": "success", "event": "responseReceived", "payload": {"text": "response text"}}`
+   - Error: `{"status": "error", "message": "error message"}`
+4. The content script announces its readiness with:
+   - `{"type": "content_ready"}`
 
-### MCPサーバーなしでテストする場合
+### Testing Without an MCP Server
 
-拡張機能には、MCPサーバーなしで機能をテストするためのポップアップUIが組み込まれています：
+A popup UI is built into the extension so you can test it without an MCP server:
 
-1. Chrome拡張機能をインストールした状態で、Gemini Webページ（https://gemini.google.com/）にアクセスします
-2. ブラウザのツールバーにある拡張機能アイコンをクリックして、ポップアップUIを開きます
-3. テキスト入力欄にGeminiに送信したいテキストを入力します
-4. 「送信」ボタンをクリックすると、テキストがGeminiに送信され、応答が表示されます
-5. 「クリア」ボタンをクリックすると、入力欄と応答欄がクリアされます
+1. With the extension installed, open `https://gemini.google.com/`
+2. Click the extension icon in the browser toolbar to open the popup UI
+3. Type the text you want to send in the input field
+4. Click **Send** to transmit the text to Gemini and see the response in the popup
+5. Click **Clear** to reset the input and response areas
 
-このテスト機能を使用することで、MCPサーバーの実装がなくても拡張機能が正しく動作していることを確認できます。
+## Development Information
 
-## 開発情報
-
-### プロジェクト構造
+### Project Structure
 
 ```
 /project-root
-|-- /dist            <- ビルド後のファイルが出力されるディレクトリ
-|-- /public          <- 静的ファイルを格納するディレクトリ
-|   |-- manifest.json <- Chrome拡張機能のマニフェスト
-|   |-- popup.html    <- テスト用ポップアップのHTML
-|   `-- popup.js      <- テスト用ポップアップのJavaScript
-|-- /src             <- ソースコードを格納するディレクトリ
-|   |-- background.ts <- Native Messaging担当
-|   |-- content.ts    <- DOM操作担当
-|   `-- types.ts      <- 型定義
+|-- /dist            <- Build output
+|-- /public          <- Static assets
+|   |-- manifest.json <- Extension manifest
+|   |-- popup.html    <- Test popup HTML
+|   `-- popup.js      <- Test popup JavaScript
+|-- /src             <- Source code
+|   |-- background.ts <- Native Messaging handler
+|   |-- content.ts    <- DOM manipulation logic
+|   `-- types.ts      <- Type definitions
 |-- package.json
 |-- tsconfig.json
 `-- webpack.config.js
 ```
 
-### ビルドコマンド
+### Build Commands
 
-- `npm run build`: 拡張機能をビルドします
+- `npm run build` – Build the extension
 
-## 注意事項
+## Notes
 
-- セレクタ（SELECTORS）は、Geminiページの実際の構造に合わせて調整が必要な場合があります
-- Native Messagingホスト名（HOST_NAME）は、MCPサーバー側の設定と一致させる必要があります
-- Content Security Policy (CSP)の設定は、Chrome拡張機能のセキュリティ要件に準拠しています（'unsafe-eval'は使用していません）
-- Service Workerは、ESモジュールとして動作するように設定されています
-- ビルド時にはdistディレクトリが自動的にクリアされます。これにより、古いファイルが残ることによる問題を防ぎます
+- The CSS selectors (`SELECTORS`) may need adjustment to match changes in the Gemini page structure.
+- The Native Messaging host name (`HOST_NAME`) must match the MCP server configuration.
+- The Content Security Policy follows Chrome extension security requirements (no `'unsafe-eval'`).
+- The Service Worker is configured to run as an ES module.
+- During the build process the `dist` directory is automatically cleared to prevent stale files from causing issues.

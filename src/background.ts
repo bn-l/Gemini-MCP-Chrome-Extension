@@ -1,58 +1,59 @@
 /**
  * background.ts
- * 
- * このファイルはChrome拡張機能のバックグラウンドスクリプトとして機能し、
- * Native Messagingを使用して外部のMCPサーバーと通信します。
- * また、Gemini Webページを開いているタブとの通信も管理します。
+ *
+ * This file acts as the background script for the Chrome extension.
+ * It communicates with an external MCP server via Native Messaging
+ * and also manages communication with tabs that have the Gemini web page open.
  */
 
 import { RequestMessage, ResponseMessage } from './types';
 
-// Native Messagingホスト名（MCPサーバー側の設定と一致させる必要があります）
+// Native Messaging host name (must match the MCP server configuration)
 const HOST_NAME = 'com.example.gemini_mcp_gateway';
 
-// Native Messagingポート（MCPサーバーとの通信に使用）
+// Native Messaging port (used to communicate with the MCP server)
 let nativePort: chrome.runtime.Port | null = null;
 
-// Geminiタブの準備状態を追跡するオブジェクト（タブID => 準備完了フラグ）
+// Tracks the readiness state of Gemini tabs (tabId => ready flag)
 let geminiTabStatus: { [key: number]: boolean } = {};
 
-// 準備ができていないタブへのメッセージキュー（タブID => メッセージ配列）
+// Message queue for tabs that are not yet ready (tabId => array of messages)
 let messageQueue: { [key: number]: RequestMessage[] } = {};
 
 /**
- * Native Messagingホストに接続する関数
- * 
- * この関数は外部のMCPサーバー（Native Messagingホスト）への接続を確立し、
- * メッセージの送受信とエラー処理を設定します。
- * 接続が切断された場合は、5秒後に再接続を試みます。
- * 接続成功時には、既存のGeminiタブに準備確認メッセージを送信します。
+ * Connects to the Native Messaging host.
+ *
+ * This function establishes a connection to the external MCP server (Native
+ * Messaging host) and sets up handlers for message exchange and error
+ * processing. If the connection is terminated, it retries after 5 seconds. On
+ * successful connection, it sends readiness-check messages to any existing
+ * Gemini tabs.
  */
 function connectToNativeHost() {
   try {
     console.log('[MCP-Background] Attempting to connect to native host...');
     nativePort = chrome.runtime.connectNative(HOST_NAME);
 
-    // MCPサーバーからのメッセージを受信したときの処理
+    // Handler for messages received from the MCP server
     nativePort.onMessage.addListener((message: RequestMessage) => {
       sendCommandsToGeminiTab(message);
     });
 
-    // 接続が切断されたときの処理
+    // Handler invoked when the connection is disconnected
     nativePort.onDisconnect.addListener(() => {
       console.log('%c[MCP-Background] Disconnected from native host.', 'color: red;');
       const error = chrome.runtime.lastError;
       if (error && error.message) console.error('[MCP-Background] Disconnect error:', error.message);
       nativePort = null;
-      // ★★★ 状態のリセットは行わない ★★★
+      // ★★★ Do NOT reset state ★★★
       // geminiTabStatus = {};
       // messageQueue = {};
-      setTimeout(connectToNativeHost, 5000); // 5秒後に再接続を試みる
+      setTimeout(connectToNativeHost, 5000); // Retry connection after 5 seconds
     });
 
     console.log('%c[MCP-Background] Successfully connected to native host.', 'color: orange;');
 
-    // 接続成功時に、既存のGeminiタブに準備OKか確認する（点呼）
+    // On successful connection, ping existing Gemini tabs to check readiness
     chrome.tabs.query({ url: "https://gemini.google.com/*" }, (tabs) => {
       tabs.forEach(tab => {
         if (tab.id) {
@@ -63,35 +64,35 @@ function connectToNativeHost() {
     });
 
   } catch (error: any) {
-    // 接続エラー時の処理
+    // Handler for connection errors
     if (error && error.message) console.error('[MCP-Background] Failed to connect:', error.message);
     else console.error('[MCP-Background] Failed to connect with an unknown error.');
-    setTimeout(connectToNativeHost, 5000); // 5秒後に再接続を試みる
+    setTimeout(connectToNativeHost, 5000); // Retry connection after 5 seconds
   }
 }
 
-// Native Messagingホストへの接続を開始
+// Start connecting to the native messaging host
 connectToNativeHost();
 
 /**
- * メッセージリスナー
- * 
- * このリスナーは以下の3種類のメッセージを処理します：
- * 1. Geminiタブからの「準備完了」通知
- * 2. Geminiタブからの応答メッセージ（MCPサーバーに転送）
- * 3. ポップアップUIなど他のソースからのコマンド（Geminiタブに転送）
+ * Message listener
+ *
+ * This listener handles three kinds of messages:
+ * 1. "Ready" notifications from Gemini tabs
+ * 2. Response messages from Gemini tabs (forwarded to the MCP server)
+ * 3. Commands from other sources such as the popup UI (forwarded to Gemini tabs)
  */
 chrome.runtime.onMessage.addListener((message, sender) => {
-  // Geminiタブからのメッセージを処理
+  // Handle messages coming from a Gemini tab
   if (sender.tab && sender.tab.url?.includes('gemini.google.com')) {
     const tabId = sender.tab.id;
     if (tabId) {
-        // タブからの「準備完了」通知を処理
+        // Handle "content ready" notification from the tab
         if (message.type === 'content_ready') {
             console.log(`%c[MCP-Background] Tab ID: ${tabId} is now ready.`, 'color: green;');
             geminiTabStatus[tabId] = true;
 
-            // キューに溜まっていたメッセージがあれば送信
+            // If there are queued messages, send them
             if (messageQueue[tabId] && messageQueue[tabId].length > 0) {
                 console.log(`[MCP-Background] Sending ${messageQueue[tabId].length} queued messages to Tab ID: ${tabId}`);
                 messageQueue[tabId].forEach(queuedMsg => {
@@ -103,43 +104,44 @@ chrome.runtime.onMessage.addListener((message, sender) => {
         }
     }
 
-    // Geminiからの応答をMCPサーバーに転送
+    // Forward response messages from Gemini tabs to the MCP server
     if (message.status && nativePort) {
       nativePort.postMessage(message);
     }
   } 
-  // ポップアップUIなど他のソースからのコマンドを処理
+  // Handle commands from other sources such as the popup UI
   else if (!sender.tab && message.command) {
     sendCommandsToGeminiTab(message as RequestMessage);
   }
-  return true; // 非同期レスポンスを有効にする
+  return true; // Enable asynchronous response
 });
 
 /**
- * Geminiタブにコマンドメッセージを送信する関数
- * 
- * この関数はMCPサーバーやポップアップUIからのコマンドをGeminiタブに転送します。
- * タブが準備できていない場合は、メッセージをキューに入れて後で送信します。
- * 
- * @param message - Geminiタブに送信するコマンドメッセージ
+ * Sends command messages to a Gemini tab.
+ *
+ * This function forwards commands coming from the MCP server or the popup UI
+ * to a Gemini tab. If the tab is not ready yet, the message is queued and sent
+ * later.
+ *
+ * @param message - The command message to send to the Gemini tab
  */
 async function sendCommandsToGeminiTab(message: RequestMessage) {
-    // Geminiタブを検索
+    // Find Gemini tabs
     const tabs = await chrome.tabs.query({ url: "https://gemini.google.com/*" });
-    if (tabs.length === 0) return; // Geminiタブが見つからない場合は何もしない
+    if (tabs.length === 0) return; // Do nothing if no Gemini tab is found
 
     const targetTab = tabs[0];
     if (targetTab && typeof targetTab.id !== 'undefined') {
         const tabId = targetTab.id;
 
-        // タブが準備できていない場合はメッセージをキューに入れる
+        // If the tab isn't ready, enqueue the message
         if (!geminiTabStatus[tabId]) {
             console.warn(`[MCP-Background] Tab ${tabId} is not ready yet. Queuing message.`, message);
             if (!messageQueue[tabId]) messageQueue[tabId] = [];
             messageQueue[tabId].push(message);
             return;
         }
-        // タブが準備できている場合はメッセージを直接送信
+        // If the tab is ready, send the message immediately
         chrome.tabs.sendMessage(tabId, message);
     }
 }

@@ -11,7 +11,7 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: '[name].js'
-    // ★ module, library, experiments を削除
+    // Removed module, library, and experiments fields as they are no longer needed
   },
   resolve: {
     extensions: ['.ts', '.js']
